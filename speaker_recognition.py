@@ -199,7 +199,7 @@ def task_verify(input_file, input_model, personid):
         fs, signal = utils.read_wav(f)
         probability = m.verify(fs, signal, personid)
         print(probability)
-        if probability > -46 :
+        if probability > -48 :
             print (f, '-> 匹配成功 ：', personid)
             return 'success','','yes'
         else:
