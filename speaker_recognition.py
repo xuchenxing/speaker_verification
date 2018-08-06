@@ -100,8 +100,7 @@ def task_train_single(input_dir, model):
     if os.path.exists(model) :
         m = ModelInterface.load(model)
     else:
-        print("model file not exist")
-        sys.exit(1)
+        m = ModelInterface()
 
     if len(input_dir) == 0:
         print ("No valid directory found!")
