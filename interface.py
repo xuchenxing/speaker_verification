@@ -14,14 +14,24 @@ class ModelInterface:
         feat = get_feature(fs, signal)
         self.features[name].extend(feat)
 
-    def train(self):
+    def train_full(self):
         self.gmmset = GMMSet()
         start_time = time.time()
+        print('==============',len(self.features.items()))
         for name, feats in self.features.items():
             try:
                 self.gmmset.fit_new(feats, name)
             except Exception as e :
                 print ("%s failed"%(name))
+        print (time.time() - start_time, " seconds")
+
+
+    def train_single(self,lable):
+        start_time = time.time()
+        try:
+            self.gmmset.fit_new(self.features.__getitem__(lable), lable)
+        except Exception as e :
+            print ("%s failed"%(lable))
         print (time.time() - start_time, " seconds")
 
     def dump(self, fname):

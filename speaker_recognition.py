@@ -14,6 +14,10 @@ import pyaudio
 import utils
 from interface import ModelInterface
 
+import tornado.ioloop
+import tornado.web
+import json
+import speaker_recognition
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -25,21 +29,21 @@ Wav files in each input directory will be labeled as the basename of the directo
 Note that wildcard inputs should be *quoted*, and they will be sent to glob.glob module.
 Examples:
     Train (enroll a list of person named person*, and mary, with wav files under corresponding directories):
-    ./speaker-recognition.py -t enroll -i "/tmp/person* ./mary" -m model.out
+    ./speaker_recognition.py -t enroll -i "/tmp/person* ./mary" -m model.out
     Predict (predict the speaker of all wav files):
-    ./speaker-recognition.py -t predict -i "./*.wav" -m model.out
+    ./speaker_recognition.py -t predict -i "./*.wav" -m model.out
 """
     parser = argparse.ArgumentParser(description=desc,epilog=epilog,
                                     formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('-t', '--task',
-                       help='Task to do. Either "enroll", "predict", "real", "verify"',
+                       help='Task to do. Either "train_single","train_full", "predict", "real", "verify"',
                        default='verify')
 
     parser.add_argument('-i', '--input',
                        help='Input Files(to predict) or Directories(to enroll)',
-                        #default='/tmp/speaker_recognition/train/')
-                        default='/tmp/speaker_recognition/predict/shiwx.wav')
+                        #default='/tmp/speaker_recognition/train/tangyc')
+                        default='/tmp/speaker_recognition/predict/yangyang.wav')
 
     parser.add_argument('-m', '--model',
                        help='Model file to save(in enroll) or use(in predict)',
@@ -47,15 +51,13 @@ Examples:
 
     parser.add_argument('-p', '--personid',
                         help='input personid',
-                        default='shiwx')
-
-
-
+                        default='xucx')
 
     ret = parser.parse_args()
     return ret
 
-def task_enroll(input_dirs, output_model):
+#全量训练
+def task_train_full(input_dirs, output_model):
     m = ModelInterface()
 
     #get all the subdir
@@ -71,7 +73,7 @@ def task_enroll(input_dirs, output_model):
     files = []
     if len(train_dir) == 0:
         print ("No valid directory found!")
-        sys.exit(1)
+        return 'fail','No valid directory found!'
 
     for d in train_dir:
         label = os.path.basename(d.rstrip('/'))
@@ -88,8 +90,46 @@ def task_enroll(input_dirs, output_model):
             except Exception as e:
                 print(wav + " error %s"%(e))
 
-        m.train()
+        m.train_full()
         m.dump(output_model)
+    return 'success',''
+
+#单个增量训练
+def task_train_single(input_dir, model):
+
+    if os.path.exists(model) :
+        m = ModelInterface.load(model)
+    else:
+        print("model file not exist")
+        sys.exit(1)
+
+    if len(input_dir) == 0:
+        print ("No valid directory found!")
+        sys.exit(1)
+
+    label = os.path.basename(input_dir.rstrip('/'))
+    wavs = glob.glob(input_dir + '/*.wav')
+
+    if label in m.features:
+        return 'fail','aleady exist'
+
+    if len(wavs) == 0 :
+        return 'fail','no wav files under this dir'
+
+    #train the wavs
+    for wav in wavs:
+        try:
+            fs, signal = utils.read_wav(wav)
+            m.enroll(label, fs, signal)
+            print("wav %s has been enrolled"%(wav))
+        except Exception as e:
+            print(wav + " error %s"%(e))
+
+    m.train_single(label)
+    m.dump(model)
+
+    return 'success',''
+
 
 # use a wav file to predict who is the speaker
 def task_predict(input_files, input_model):
@@ -151,7 +191,7 @@ def task_realtime_predict(input_model):
 
 
 # to verify whether the input voice and the person matched
-def task_verify(input_model, input_file, personid):
+def task_verify(input_file, input_model, personid):
     start_time = time.time()
     print('开始时间：', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time)))
     m = ModelInterface.load(input_model)
@@ -161,25 +201,25 @@ def task_verify(input_model, input_file, personid):
         print(probability)
         if probability > -46 :
             print (f, '-> 匹配成功 ：', personid)
+            return 'success','','yes'
         else:
             print (f, '->未匹配成功')
+            return 'success','','no'
 
     end_time = time.time()
     print('结束时间：', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time)))
     print('共耗时', end_time - start_time)
 
 
-
-
-
-
-if __name__ == "__main__":
+def command_method():
     global args
     args = get_args()
 
     task = args.task
-    if task == 'enroll':
-        task_enroll(args.input, args.model)
+    if task == 'train_full':
+        task_train_full(args.input, args.model)
+    elif task == 'train_single':
+        task_train_single(args.input, args.model)
     elif task == 'predict':
         task_predict(args.input, args.model)
     elif task == 'real':
@@ -187,3 +227,53 @@ if __name__ == "__main__":
     elif task == 'verify' :
         personid = args.personid
         task_verify(args.model, args.input, args.personid)
+
+
+def httpservice_method():
+    application.listen(8888)
+    print('server listening at ',8888)
+    tornado.ioloop.IOLoop.instance().start()
+
+class train_full(tornado.web.RequestHandler):
+    def post(self):
+        print(self.request.body)
+        request = json.loads(self.request.body)
+        status,reason = task_train_full(request['input_dirs'],request['model'])
+        res_json = {}
+        res_json['status'] = status
+        res_json['reason'] = reason
+        res_json['result'] = ''
+        self.write(json.dumps(res_json))
+
+class train_single(tornado.web.RequestHandler):
+    def post(self):
+        print(self.request.body)
+        request = json.loads(self.request.body)
+        status,reason = task_train_single(request['input_dirs'],request['model'])
+        res_json = {}
+        res_json['status'] = status
+        res_json['reason'] = reason
+        res_json['result'] = ''
+        self.write(json.dumps(res_json))
+
+class verify(tornado.web.RequestHandler):
+    def post(self):
+        print(self.request.body)
+        request = json.loads(self.request.body)
+        status,reason,result = task_verify(request['input_dirs'],request['model'],request['person_id'])
+        res_json = {}
+        res_json['status'] = status
+        res_json['reason'] = reason
+        res_json['result'] = result
+        self.write(json.dumps(res_json))
+
+application = tornado.web.Application([
+    (r"/train_full", train_full),
+    (r"/train_single", train_single),
+    (r"/verify", verify)
+])
+
+if __name__ == "__main__":
+    #command_method()
+    httpservice_method()
+
