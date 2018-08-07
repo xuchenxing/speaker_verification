@@ -17,9 +17,7 @@ from interface import ModelInterface
 import tornado.ioloop
 import tornado.web
 import json
-import speaker_recognition
 
-import urllib.request as urllib
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -234,6 +232,16 @@ def task_verify(wav_url, person_id):
     print('结束时间：', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time)))
     print('共耗时', end_time - start_time)
 
+# 判断是否已注册声纹
+def task_check_status(person_id):
+
+    m = ModelInterface.load(model)
+
+    if person_id not in m.features:
+        return 'success','','no'
+    else:
+        return 'success','','yes'
+
 
 def command_method():
     global args
@@ -272,13 +280,23 @@ class train_full(tornado.web.RequestHandler):
 class train_single(tornado.web.RequestHandler):
     def post(self):
         print(self.request.body)
-        model = ''
         request = json.loads(self.request.body)
         status,reason = task_train_single(request['input_voice'],request['person_id'])
         res_json = {}
         res_json['status'] = status
         res_json['reason'] = reason
         res_json['result'] = ''
+        self.write(json.dumps(res_json))
+
+class check_status(tornado.web.RequestHandler):
+    def post(self):
+        request = json.loads(self.request.body)
+        person_id = request['person_id']
+        status,reason,result = task_check_status(person_id)
+        res_json = {}
+        res_json['status'] = status
+        res_json['reason'] = reason
+        res_json['result'] = result
         self.write(json.dumps(res_json))
 
 class verify(tornado.web.RequestHandler):
@@ -293,7 +311,7 @@ class verify(tornado.web.RequestHandler):
         self.write(json.dumps(res_json))
 
 application = tornado.web.Application([
-    (r"/train_full", train_full),
+    (r"/check_status", check_status),
     (r"/train_single", train_single),
     (r"/verify", verify)
 ])
