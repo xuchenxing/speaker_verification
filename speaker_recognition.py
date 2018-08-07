@@ -259,7 +259,7 @@ class verify(tornado.web.RequestHandler):
     def post(self):
         print(self.request.body)
         request = json.loads(self.request.body)
-        status,reason,result = task_verify(request['input_dirs'],request['model'],request['person_id'])
+        status,reason,result = task_verify(request['input_voice'],request['model'],request['person_id'])
         res_json = {}
         res_json['status'] = status
         res_json['reason'] = reason
