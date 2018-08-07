@@ -1,5 +1,8 @@
 from scipy.io import wavfile
 
+import urllib.request as urllib
+
+
 def read_wav(fname):
     fs, signal = wavfile.read(fname)
     assert len(signal.shape) == 1, "Only Support Mono Wav File!"
@@ -19,3 +22,12 @@ def flat_array(array) :
         array.remove(array[1])
 
     return array
+
+
+#从网络上取文件下载到本地
+def download_file(url,dest) :
+    #url = 'http://10.21.19.18:8080/wav/a.wav'
+    f = urllib.urlopen(url)
+    data = f.read()
+    with open(dest , "wb") as code:
+        code.write(data)

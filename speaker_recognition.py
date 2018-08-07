@@ -19,8 +19,17 @@ import tornado.web
 import json
 import speaker_recognition
 
+import urllib.request as urllib
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
+#全局变量
+model = '/home/ai/model/model.out'
+verify_voice_dir = '/home/ai/voice/verify/'
+train_voice_dir = '/home/ai/voice/train/'
+#model = 'model.out'
+#verify_voice_dir = '/tmp/speaker_recognition/predict/'
+#train_voice_dir = '/tmp/speaker_recognition/train/'
 
 def get_args():
     desc = "Speaker Recognition Command Line Tool"
@@ -95,22 +104,29 @@ def task_train_full(input_dirs, output_model):
     return 'success',''
 
 #单个增量训练
-def task_train_single(input_dir, model):
+def task_train_single(wav_url, person_id):
 
     if os.path.exists(model) :
         m = ModelInterface.load(model)
     else:
         m = ModelInterface()
 
-    if len(input_dir) == 0:
-        print ("No valid directory found!")
-        sys.exit(1)
-
-    label = os.path.basename(input_dir.rstrip('/'))
-    wavs = glob.glob(input_dir + '/*.wav')
-
-    if label in m.features:
+    if person_id in m.features:
         return 'fail','aleady exist'
+
+    #下载训练语音文件
+    dest_dir = train_voice_dir + person_id
+    if not os.path.exists(dest_dir) :
+        os.makedirs(dest_dir)
+    current_time = time.strftime("%Y%m%d%H%I%S", time.localtime(time.time()))
+    dest_wav = dest_dir + '/' + current_time + '_' + person_id + '.wav'
+
+    print(wav_url)
+    print(dest_wav)
+    utils.download_file(wav_url,dest_wav)
+
+    #获取下载好的训练语音文件
+    wavs = glob.glob(dest_dir + '/*.wav')
 
     if len(wavs) == 0 :
         return 'fail','no wav files under this dir'
@@ -119,12 +135,12 @@ def task_train_single(input_dir, model):
     for wav in wavs:
         try:
             fs, signal = utils.read_wav(wav)
-            m.enroll(label, fs, signal)
+            m.enroll(person_id, fs, signal)
             print("wav %s has been enrolled"%(wav))
         except Exception as e:
             print(wav + " error %s"%(e))
 
-    m.train_single(label)
+    m.train_single(person_id)
     m.dump(model)
 
     return 'success',''
@@ -190,16 +206,25 @@ def task_realtime_predict(input_model):
 
 
 # to verify whether the input voice and the person matched
-def task_verify(input_file, input_model, personid):
+def task_verify(wav_url, person_id):
     start_time = time.time()
     print('开始时间：', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time)))
-    m = ModelInterface.load(input_model)
-    for f in glob.glob(os.path.expanduser(input_file)):
+    m = ModelInterface.load(model)
+
+    if person_id not in m.features:
+        return 'fail','current user not trained',''
+
+    # 下载训练语音文件，
+    current_time = time.strftime("%Y%m%d%H%I%S", time.localtime(time.time()))
+    dest_wav = verify_voice_dir + current_time + '_' + person_id + '.wav'
+    utils.download_file(wav_url, dest_wav)
+
+    for f in glob.glob(os.path.expanduser(dest_wav)):
         fs, signal = utils.read_wav(f)
-        probability = m.verify(fs, signal, personid)
+        probability = m.verify(fs, signal, person_id)
         print(probability)
         if probability > -48 :
-            print (f, '-> 匹配成功 ：', personid)
+            print (f, '-> 匹配成功 ：', person_id)
             return 'success','','yes'
         else:
             print (f, '->未匹配成功')
@@ -247,8 +272,9 @@ class train_full(tornado.web.RequestHandler):
 class train_single(tornado.web.RequestHandler):
     def post(self):
         print(self.request.body)
+        model = ''
         request = json.loads(self.request.body)
-        status,reason = task_train_single(request['input_dirs'],request['model'])
+        status,reason = task_train_single(request['input_voice'],request['person_id'])
         res_json = {}
         res_json['status'] = status
         res_json['reason'] = reason
@@ -259,7 +285,7 @@ class verify(tornado.web.RequestHandler):
     def post(self):
         print(self.request.body)
         request = json.loads(self.request.body)
-        status,reason,result = task_verify(request['input_voice'],request['model'],request['person_id'])
+        status,reason,result = task_verify(request['input_voice'],request['person_id'])
         res_json = {}
         res_json['status'] = status
         res_json['reason'] = reason
